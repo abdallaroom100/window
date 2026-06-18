@@ -33,16 +33,34 @@ jobs:
           Write-Host "::notice title=Access Credentials::User: $user | Password: $randomPassword"
           echo "DEBUG_USER=$user" >> $env:GITHUB_ENV
 
-      - name: Network Layer Setup
+      - name: Network Layer Setup (Fast Ngrok)
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile "ts.msi"
-          Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
+          # 1. Download and extract Ngrok instantly
+          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath .
           
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=win-diag-${{ github.run_id }}
+          # 2. Authenticate (You need to add NGROK_AUTH_TOKEN to GitHub Secrets)
+          .\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
           
-          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+          # 3. Start TCP tunnel on RDP port (3389) in the background
+          Start-Process -FilePath .\ngrok.exe -ArgumentList "tcp 3389" -WindowStyle Hidden
+          
+          # 4. Wait a few seconds for the tunnel to establish
+          Start-Sleep -Seconds 5
+          
+          # 5. Fetch the public address and display it in GitHub Actions Logs
+          $NgrokUrl = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
+          Write-Host "::notice title=Fast RDP Address::$NgrokUrl"
+      # - name: Network Layer Setup
+      #   run: |
+      #     $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+      #     Invoke-WebRequest -Uri $tsUrl -OutFile "ts.msi"
+      #     Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
+          
+      #     & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=win-diag-${{ github.run_id }}
+          
+      #     $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+      #     echo "TS_IP=$ip" >> $env:GITHUB_ENV
 
       - name: System Stability Wait
         shell: pwsh
